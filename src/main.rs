@@ -33,6 +33,10 @@ const DEFAULT_READABLE_ROOTS: &[&str] = &[
     "/run/current-system/sw",
 ];
 const SANDBOX_EXECUTABLE_PATH: &str = "/tmp/.bjail/bin/bjail";
+#[cfg(target_arch = "x86_64")]
+const ADDITIONAL_DENIED_PROCESS_SYSCALLS: &[i64] = &[libc::SYS_fork, libc::SYS_vfork];
+#[cfg(not(target_arch = "x86_64"))]
+const ADDITIONAL_DENIED_PROCESS_SYSCALLS: &[i64] = &[];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -551,10 +555,9 @@ fn install_no_subprocess_seccomp() -> Result<()> {
     let mut rules = BTreeMap::new();
     deny_syscall(&mut rules, libc::SYS_clone);
     deny_syscall(&mut rules, libc::SYS_clone3);
-    #[cfg(target_arch = "x86_64")]
-    deny_syscall(&mut rules, libc::SYS_fork);
-    #[cfg(target_arch = "x86_64")]
-    deny_syscall(&mut rules, libc::SYS_vfork);
+    for syscall in ADDITIONAL_DENIED_PROCESS_SYSCALLS {
+        deny_syscall(&mut rules, *syscall);
+    }
 
     let filter = SeccompFilter::new(
         rules,
