@@ -551,7 +551,9 @@ fn install_no_subprocess_seccomp() -> Result<()> {
     let mut rules = BTreeMap::new();
     deny_syscall(&mut rules, libc::SYS_clone);
     deny_syscall(&mut rules, libc::SYS_clone3);
+    #[cfg(target_arch = "x86_64")]
     deny_syscall(&mut rules, libc::SYS_fork);
+    #[cfg(target_arch = "x86_64")]
     deny_syscall(&mut rules, libc::SYS_vfork);
 
     let filter = SeccompFilter::new(
