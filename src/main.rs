@@ -61,6 +61,10 @@ struct OuterCli {
     #[arg(long = "readable-path", action = ArgAction::Append)]
     readable_paths: Vec<PathBuf>,
 
+    /// Also allow the directories listed in this bjail process's PATH environment variable.
+    #[arg(long, action = ArgAction::SetTrue)]
+    allow_env_path: bool,
+
     /// Paths that should become unreadable after mounts are applied.
     #[arg(long = "blocked-path", action = ArgAction::Append)]
     blocked_paths: Vec<PathBuf>,
@@ -187,6 +191,9 @@ fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
         .iter()
         .map(|path| canonicalize_existing_path(&absolutize_path(path)?))
         .collect::<Result<Vec<_>>>()?;
+    if cli.allow_env_path {
+        readable_paths.extend(readable_path_dirs_from_env()?);
+    }
     let mut blocked_paths = cli
         .blocked_paths
         .iter()
@@ -203,6 +210,43 @@ fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
         readable_paths,
         blocked_paths,
     })
+}
+
+fn readable_path_dirs_from_env() -> Result<Vec<PathBuf>> {
+    let current_dir = env::current_dir().context("failed to resolve current directory")?;
+    Ok(readable_path_dirs_from_value(env::var_os("PATH"), &current_dir))
+}
+
+fn readable_path_dirs_from_value(
+    path_value: Option<std::ffi::OsString>,
+    current_dir: &Path,
+) -> Vec<PathBuf> {
+    let Some(path_value) = path_value else {
+        return Vec::new();
+    };
+
+    let mut dirs = Vec::new();
+    for entry in env::split_paths(&path_value) {
+        let absolute = if entry.is_absolute() {
+            entry
+        } else {
+            current_dir.join(entry)
+        };
+
+        let Ok(metadata) = fs::metadata(&absolute) else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let Ok(canonical) = canonicalize_existing_path(&absolute) else {
+            continue;
+        };
+        dirs.push(canonical);
+    }
+
+    dirs
 }
 
 fn absolutize_path(path: &Path) -> Result<PathBuf> {
@@ -710,6 +754,40 @@ mod tests {
                 .windows(3)
                 .any(|window| window == ["--bind", sandbox.as_str(), sandbox.as_str()])
         );
+    }
+
+    #[test]
+    fn readable_path_dirs_from_env_uses_existing_directories_only() {
+        let temp = tempdir().expect("tempdir");
+        let bin = temp.path().join("bin");
+        let relative = PathBuf::from("relative-bin");
+        let relative_bin = temp.path().join(&relative);
+        fs::create_dir_all(&bin).expect("create bin");
+        fs::create_dir_all(&relative_bin).expect("create relative bin");
+
+        let dirs = readable_path_dirs_from_value(
+            Some(
+                env::join_paths([
+                    bin.as_path(),
+                    Path::new("/definitely/missing"),
+                    relative.as_path(),
+                ])
+                .expect("join PATH"),
+            ),
+            temp.path(),
+        );
+
+        assert!(dirs.contains(&bin.canonicalize().expect("canonical bin")));
+        assert!(dirs.contains(&relative_bin.canonicalize().expect("canonical relative bin")));
+        assert_eq!(dirs.len(), 2);
+    }
+
+    #[test]
+    fn readable_path_dirs_from_env_returns_empty_without_path() {
+        let temp = tempdir().expect("tempdir");
+        let dirs = readable_path_dirs_from_value(None, temp.path());
+
+        assert!(dirs.is_empty());
     }
 
     #[test]

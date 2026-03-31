@@ -103,6 +103,23 @@ bjail \
 
 这时未挂载进来的其它普通路径默认不可见。
 
+### `--allow-env-path`
+
+把当前 `bjail` 进程环境变量 `PATH` 里的现存目录自动并入可读白名单。
+
+- 主要用于白名单模式，避免 `PATH` 里的工具目录因为未挂载而不可执行
+- 不存在或不是目录的 `PATH` 项会被忽略
+
+示例：
+
+```bash
+bjail \
+  --sandbox-path /tmp/workspace \
+  --readable-path /home/user/project \
+  --allow-env-path \
+  bash -lc 'command -v ls && command -v python3'
+```
+
 ### `--blocked-path <PATH>`
 
 追加不可读黑名单路径，可重复传入。
