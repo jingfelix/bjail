@@ -38,6 +38,22 @@ cargo --version
 bwrap --version
 ```
 
+## 安装
+
+本地仓库安装：
+
+```bash
+cargo install --path .
+```
+
+从 GitHub 安装：
+
+```bash
+cargo install --git https://github.com/jingfelix/bjail.git
+```
+
+安装完成后，二进制通常位于 `~/.cargo/bin/bjail`。
+
 ## 编译
 
 在仓库根目录执行：
@@ -255,3 +271,21 @@ cargo test
 ```bash
 cargo fmt -- --check
 ```
+
+## 发布到 crates.io
+
+如果你想让用户直接执行：
+
+```bash
+cargo install bjail
+```
+
+则需要先把包发布到 crates.io。建议流程：
+
+```bash
+cargo login
+cargo publish --dry-run
+cargo publish
+```
+
+发布前还需要确认 `bjail` 这个 crate 名在 crates.io 上可用，并确保 README、LICENSE 和发布元数据保持一致。

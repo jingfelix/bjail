@@ -2,6 +2,12 @@
 name = "bjail"
 version = "0.1.4"
 edition = "2024"
+description = "A minimal bubblewrap-based sandbox CLI for Linux"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/jingfelix/bjail"
+keywords = ["sandbox", "bubblewrap", "cli", "linux"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1"
