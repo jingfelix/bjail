@@ -24,6 +24,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             apt_packages: ""
             linker: ""
+          - target: x86_64-unknown-linux-musl
+            apt_packages: ""
+            linker: ""
           - target: aarch64-unknown-linux-gnu
             apt_packages: "gcc-aarch64-linux-gnu"
             linker: "aarch64-linux-gnu-gcc"
