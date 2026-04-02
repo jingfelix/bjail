@@ -186,19 +186,12 @@ fn ensure_bwrap_available() -> Result<()> {
 
 fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
     let sandbox_path = canonicalize_sandbox_path(&cli.sandbox_path)?;
-    let mut readable_paths = cli
-        .readable_paths
-        .iter()
-        .map(|path| canonicalize_existing_path(&absolutize_path(path)?))
-        .collect::<Result<Vec<_>>>()?;
+    let mut readable_paths =
+        resolve_optional_existing_paths(&cli.readable_paths, "readable path")?;
     if cli.allow_env_path {
         readable_paths.extend(readable_path_dirs_from_env()?);
     }
-    let mut blocked_paths = cli
-        .blocked_paths
-        .iter()
-        .map(|path| canonicalize_existing_path(&absolutize_path(path)?))
-        .collect::<Result<Vec<_>>>()?;
+    let mut blocked_paths = resolve_optional_existing_paths(&cli.blocked_paths, "blocked path")?;
 
     readable_paths.sort();
     readable_paths.dedup();
@@ -210,6 +203,64 @@ fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
         readable_paths,
         blocked_paths,
     })
+}
+
+fn resolve_optional_existing_paths(paths: &[PathBuf], kind: &str) -> Result<Vec<PathBuf>> {
+    let mut resolved_paths = Vec::new();
+
+    for path in paths {
+        let absolute = match absolutize_path(path) {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!(
+                    "bjail: warning: skipping {kind} `{}` because it could not be resolved: {err:#}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        let metadata = match fs::metadata(&absolute) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "bjail: warning: skipping {kind} `{}` because it does not exist",
+                    absolute.display()
+                );
+                continue;
+            }
+            Err(err) => {
+                eprintln!(
+                    "bjail: warning: skipping {kind} `{}` because metadata lookup failed: {err}",
+                    absolute.display()
+                );
+                continue;
+            }
+        };
+
+        let canonical = match absolute.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                eprintln!(
+                    "bjail: warning: skipping {kind} `{}` because canonicalization failed: {err}",
+                    absolute.display()
+                );
+                continue;
+            }
+        };
+
+        if !metadata.is_dir() && !metadata.is_file() {
+            eprintln!(
+                "bjail: warning: skipping {kind} `{}` because only regular files and directories are supported",
+                absolute.display()
+            );
+            continue;
+        }
+
+        resolved_paths.push(canonical);
+    }
+
+    Ok(resolved_paths)
 }
 
 fn readable_path_dirs_from_env() -> Result<Vec<PathBuf>> {
@@ -788,6 +839,38 @@ mod tests {
         let dirs = readable_path_dirs_from_value(None, temp.path());
 
         assert!(dirs.is_empty());
+    }
+
+    #[test]
+    fn missing_readable_path_is_skipped() {
+        let temp = tempdir().expect("tempdir");
+        let readable = temp.path().join("docs");
+        let missing = temp.path().join("missing");
+        fs::create_dir_all(&readable).expect("create readable");
+
+        let resolved = resolve_optional_existing_paths(
+            &[readable.clone(), missing],
+            "readable path",
+        )
+        .expect("resolved paths");
+
+        assert_eq!(resolved, vec![readable.canonicalize().expect("canonical readable")]);
+    }
+
+    #[test]
+    fn missing_blocked_path_is_skipped() {
+        let temp = tempdir().expect("tempdir");
+        let blocked = temp.path().join("secret.txt");
+        fs::write(&blocked, "secret").expect("write blocked");
+        let missing = temp.path().join("missing.txt");
+
+        let resolved = resolve_optional_existing_paths(
+            &[blocked.clone(), missing],
+            "blocked path",
+        )
+        .expect("resolved paths");
+
+        assert_eq!(resolved, vec![blocked.canonicalize().expect("canonical blocked")]);
     }
 
     #[test]
