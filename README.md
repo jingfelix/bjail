@@ -141,9 +141,9 @@ bjail \
 
 把宿主机 `/tmp` 以可读写方式挂载到沙箱内的 `/tmp`。
 
-- 默认不启用；白名单模式下宿主机 `/tmp` 默认不可见
-- 启用后，沙箱内进程可以读取和写入宿主机 `/tmp` 下当前用户有权限访问的内容
+- 默认启用；沙箱内进程可以读取和写入宿主机 `/tmp` 下当前用户有权限访问的内容
 - 适合需要复用宿主机临时文件、socket 或缓存的命令；不适合不可信命令
+- 如需关闭，使用 `--no-writable-host-tmp`
 
 示例：
 
@@ -153,6 +153,16 @@ bjail \
   --readable-path /home/user/project \
   --writable-host-tmp \
   bash -lc 'mktemp /tmp/bjail.XXXXXX'
+```
+
+关闭宿主机 `/tmp` 挂载：
+
+```bash
+bjail \
+  --sandbox-path /tmp/workspace \
+  --readable-path /home/user/project \
+  --no-writable-host-tmp \
+  bash -lc 'ls /tmp'
 ```
 
 ### `--blocked-path <PATH>`
@@ -266,8 +276,10 @@ bjail --subprocess false python3 -c "import subprocess; subprocess.run(['true'],
   ` / ` 只读绑定，`--sandbox-path` 对应目录重新绑定为可写
 - 白名单模式：
   ` / ` 从 `tmpfs` 开始，只挂载最小系统目录、`--readable-path`、以及 `--sandbox-path`
-- 指定 `--writable-host-tmp` 时：
+- 默认情况下：
   宿主机 `/tmp` 会以可读写方式挂载到沙箱内的 `/tmp`
+- 指定 `--no-writable-host-tmp` 时：
+  不挂载宿主机 `/tmp`
 - 黑名单路径会在最后阶段覆盖到对应挂载点上
 - `/dev` 使用最小设备节点
 - `/proc` 挂载到新的 PID namespace 中

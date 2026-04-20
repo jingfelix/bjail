@@ -69,6 +69,10 @@ struct OuterCli {
     #[arg(long = "writable-host-tmp", action = ArgAction::SetTrue)]
     writable_host_tmp: bool,
 
+    /// Do not bind mount the host /tmp directory as writable inside the sandbox.
+    #[arg(long = "no-writable-host-tmp", action = ArgAction::SetTrue)]
+    no_writable_host_tmp: bool,
+
     /// Paths that should become unreadable after mounts are applied.
     #[arg(long = "blocked-path", action = ArgAction::Append)]
     blocked_paths: Vec<PathBuf>,
@@ -205,7 +209,7 @@ fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
     Ok(FilesystemPolicy {
         sandbox_path,
         readable_paths,
-        writable_host_tmp: cli.writable_host_tmp,
+        writable_host_tmp: cli.writable_host_tmp || !cli.no_writable_host_tmp,
         blocked_paths,
     })
 }
@@ -735,6 +739,35 @@ mod tests {
         let command = vec!["cat".to_string(), "weird file's name.txt".to_string()];
         let shell = build_shell_command(&command, true).expect("shell command");
         assert_eq!(shell, "cat 'weird file'\\''s name.txt'");
+    }
+
+    #[test]
+    fn writable_host_tmp_is_enabled_by_default() {
+        let cli = OuterCli::parse_from(["bjail", "true"]);
+        let policy = resolve_filesystem_policy(&cli).expect("filesystem policy");
+
+        assert!(policy.writable_host_tmp);
+    }
+
+    #[test]
+    fn no_writable_host_tmp_disables_default_host_tmp_mount() {
+        let cli = OuterCli::parse_from(["bjail", "--no-writable-host-tmp", "true"]);
+        let policy = resolve_filesystem_policy(&cli).expect("filesystem policy");
+
+        assert!(!policy.writable_host_tmp);
+    }
+
+    #[test]
+    fn writable_host_tmp_overrides_no_writable_host_tmp() {
+        let cli = OuterCli::parse_from([
+            "bjail",
+            "--no-writable-host-tmp",
+            "--writable-host-tmp",
+            "true",
+        ]);
+        let policy = resolve_filesystem_policy(&cli).expect("filesystem policy");
+
+        assert!(policy.writable_host_tmp);
     }
 
     #[test]

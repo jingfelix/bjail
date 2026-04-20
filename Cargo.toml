@@ -1,6 +1,6 @@
 [package]
 name = "bjail"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 description = "A minimal bubblewrap-based sandbox CLI for Linux"
 readme = "README.md"
