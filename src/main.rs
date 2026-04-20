@@ -32,7 +32,7 @@ const DEFAULT_READABLE_ROOTS: &[&str] = &[
     "/nix/store",
     "/run/current-system/sw",
 ];
-const SANDBOX_EXECUTABLE_PATH: &str = "/tmp/.bjail/bin/bjail";
+const SANDBOX_EXECUTABLE_PATH: &str = "/.bjail/bin/bjail";
 #[cfg(target_arch = "x86_64")]
 const ADDITIONAL_DENIED_PROCESS_SYSCALLS: &[i64] = &[libc::SYS_fork, libc::SYS_vfork];
 #[cfg(not(target_arch = "x86_64"))]
@@ -65,6 +65,10 @@ struct OuterCli {
     #[arg(long, action = ArgAction::SetTrue)]
     allow_env_path: bool,
 
+    /// Bind mount the host /tmp directory as writable inside the sandbox.
+    #[arg(long = "writable-host-tmp", action = ArgAction::SetTrue)]
+    writable_host_tmp: bool,
+
     /// Paths that should become unreadable after mounts are applied.
     #[arg(long = "blocked-path", action = ArgAction::Append)]
     blocked_paths: Vec<PathBuf>,
@@ -93,6 +97,7 @@ struct InnerCli {
 struct FilesystemPolicy {
     sandbox_path: PathBuf,
     readable_paths: Vec<PathBuf>,
+    writable_host_tmp: bool,
     blocked_paths: Vec<PathBuf>,
 }
 
@@ -186,8 +191,7 @@ fn ensure_bwrap_available() -> Result<()> {
 
 fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
     let sandbox_path = canonicalize_sandbox_path(&cli.sandbox_path)?;
-    let mut readable_paths =
-        resolve_optional_existing_paths(&cli.readable_paths, "readable path")?;
+    let mut readable_paths = resolve_optional_existing_paths(&cli.readable_paths, "readable path")?;
     if cli.allow_env_path {
         readable_paths.extend(readable_path_dirs_from_env()?);
     }
@@ -201,6 +205,7 @@ fn resolve_filesystem_policy(cli: &OuterCli) -> Result<FilesystemPolicy> {
     Ok(FilesystemPolicy {
         sandbox_path,
         readable_paths,
+        writable_host_tmp: cli.writable_host_tmp,
         blocked_paths,
     })
 }
@@ -265,7 +270,10 @@ fn resolve_optional_existing_paths(paths: &[PathBuf], kind: &str) -> Result<Vec<
 
 fn readable_path_dirs_from_env() -> Result<Vec<PathBuf>> {
     let current_dir = env::current_dir().context("failed to resolve current directory")?;
-    Ok(readable_path_dirs_from_value(env::var_os("PATH"), &current_dir))
+    Ok(readable_path_dirs_from_value(
+        env::var_os("PATH"),
+        &current_dir,
+    ))
 }
 
 fn readable_path_dirs_from_value(
@@ -422,6 +430,16 @@ fn create_filesystem_args(
             "--dev".to_string(),
             "/dev".to_string(),
         ]);
+    }
+
+    if fs_policy.writable_host_tmp {
+        append_bind_mount_args(
+            &mut args,
+            &mut preserved_files,
+            Path::new("/tmp"),
+            false,
+            Path::new("/"),
+        )?;
     }
 
     if let Some((source, dest)) = executable_mapping {
@@ -731,6 +749,7 @@ mod tests {
         let policy = FilesystemPolicy {
             sandbox_path: sandbox.clone(),
             readable_paths: Vec::new(),
+            writable_host_tmp: false,
             blocked_paths: Vec::new(),
         };
         let argv = build_bwrap_argv(
@@ -763,6 +782,7 @@ mod tests {
         let policy = FilesystemPolicy {
             sandbox_path: sandbox,
             readable_paths: Vec::new(),
+            writable_host_tmp: false,
             blocked_paths: Vec::new(),
         };
         let argv = build_bwrap_argv(
@@ -787,6 +807,7 @@ mod tests {
         let policy = FilesystemPolicy {
             sandbox_path: sandbox.clone(),
             readable_paths: vec![readable.clone()],
+            writable_host_tmp: false,
             blocked_paths: Vec::new(),
         };
 
@@ -804,6 +825,35 @@ mod tests {
             args.args
                 .windows(3)
                 .any(|window| window == ["--bind", sandbox.as_str(), sandbox.as_str()])
+        );
+    }
+
+    #[test]
+    fn writable_host_tmp_mounts_host_tmp_read_write() {
+        let temp = tempdir().expect("tempdir");
+        let readable = temp.path().join("docs");
+        let sandbox = temp.path().join("workspace");
+        fs::create_dir_all(&readable).expect("create readable");
+        fs::create_dir_all(&sandbox).expect("create sandbox");
+
+        let policy = FilesystemPolicy {
+            sandbox_path: sandbox,
+            readable_paths: vec![readable],
+            writable_host_tmp: true,
+            blocked_paths: Vec::new(),
+        };
+
+        let args = create_filesystem_args(&policy, None).expect("filesystem args");
+        assert!(
+            args.args
+                .windows(3)
+                .any(|window| window == ["--bind", "/tmp", "/tmp"])
+        );
+        assert!(
+            !args
+                .args
+                .windows(3)
+                .any(|window| window == ["--ro-bind", "/tmp", "/tmp"])
         );
     }
 
@@ -848,13 +898,14 @@ mod tests {
         let missing = temp.path().join("missing");
         fs::create_dir_all(&readable).expect("create readable");
 
-        let resolved = resolve_optional_existing_paths(
-            &[readable.clone(), missing],
-            "readable path",
-        )
-        .expect("resolved paths");
+        let resolved =
+            resolve_optional_existing_paths(&[readable.clone(), missing], "readable path")
+                .expect("resolved paths");
 
-        assert_eq!(resolved, vec![readable.canonicalize().expect("canonical readable")]);
+        assert_eq!(
+            resolved,
+            vec![readable.canonicalize().expect("canonical readable")]
+        );
     }
 
     #[test]
@@ -864,13 +915,13 @@ mod tests {
         fs::write(&blocked, "secret").expect("write blocked");
         let missing = temp.path().join("missing.txt");
 
-        let resolved = resolve_optional_existing_paths(
-            &[blocked.clone(), missing],
-            "blocked path",
-        )
-        .expect("resolved paths");
+        let resolved = resolve_optional_existing_paths(&[blocked.clone(), missing], "blocked path")
+            .expect("resolved paths");
 
-        assert_eq!(resolved, vec![blocked.canonicalize().expect("canonical blocked")]);
+        assert_eq!(
+            resolved,
+            vec![blocked.canonicalize().expect("canonical blocked")]
+        );
     }
 
     #[test]
@@ -883,6 +934,7 @@ mod tests {
         let policy = FilesystemPolicy {
             sandbox_path: sandbox,
             readable_paths: Vec::new(),
+            writable_host_tmp: false,
             blocked_paths: vec![blocked.clone()],
         };
 
@@ -911,6 +963,7 @@ mod tests {
         let policy = FilesystemPolicy {
             sandbox_path: sandbox,
             readable_paths: Vec::new(),
+            writable_host_tmp: false,
             blocked_paths: vec![blocked.clone()],
         };
 

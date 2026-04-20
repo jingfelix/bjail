@@ -137,6 +137,24 @@ bjail \
   bash -lc 'command -v ls && command -v python3'
 ```
 
+### `--writable-host-tmp`
+
+把宿主机 `/tmp` 以可读写方式挂载到沙箱内的 `/tmp`。
+
+- 默认不启用；白名单模式下宿主机 `/tmp` 默认不可见
+- 启用后，沙箱内进程可以读取和写入宿主机 `/tmp` 下当前用户有权限访问的内容
+- 适合需要复用宿主机临时文件、socket 或缓存的命令；不适合不可信命令
+
+示例：
+
+```bash
+bjail \
+  --sandbox-path /tmp/workspace \
+  --readable-path /home/user/project \
+  --writable-host-tmp \
+  bash -lc 'mktemp /tmp/bjail.XXXXXX'
+```
+
 ### `--blocked-path <PATH>`
 
 追加不可读黑名单路径，可重复传入。
@@ -248,6 +266,8 @@ bjail --subprocess false python3 -c "import subprocess; subprocess.run(['true'],
   ` / ` 只读绑定，`--sandbox-path` 对应目录重新绑定为可写
 - 白名单模式：
   ` / ` 从 `tmpfs` 开始，只挂载最小系统目录、`--readable-path`、以及 `--sandbox-path`
+- 指定 `--writable-host-tmp` 时：
+  宿主机 `/tmp` 会以可读写方式挂载到沙箱内的 `/tmp`
 - 黑名单路径会在最后阶段覆盖到对应挂载点上
 - `/dev` 使用最小设备节点
 - `/proc` 挂载到新的 PID namespace 中
