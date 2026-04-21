@@ -147,9 +147,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh release delete latest --yes || true
+          gh release delete latest --repo "${GITHUB_REPOSITORY}" --yes || true
           gh release create latest \
             dist-latest/*.tar.gz \
             dist-latest/*.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
             --title latest \
             --notes "Latest bjail release. Source version: ${GITHUB_REF_NAME}."
